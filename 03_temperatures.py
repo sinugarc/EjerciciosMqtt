@@ -20,11 +20,11 @@ def update():
             t_mu=suma/mediciones
             total_med += mediciones
             total += suma
-            print(f'Sensor {sid} has reached {t_max[-1]} as maximun, {t_min[-1]} as minimun and {t_mu} as mean temperature')
+            print(f'Sensor {sid} has reached: Max={t_max[-1]:.2f}, Min={t_min[-1]:.2f} and Avg={t_mu:.2f}')
         maximo=max(t_max)
         minimo=min(t_min)
         t_mu=total/total_med
-        print(f'Max temperature reached is {maximo}, minimun {minimo} and the mean is {t_mu}')
+        print(f'Global temperatures: Max={maximo:.2f}, Min={minimo:.2f} and Avg={t_mu:.2f}')
     else:
         print("No temperature has been recorded yet")
 
