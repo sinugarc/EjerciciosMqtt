@@ -5,6 +5,9 @@ from paho.mqtt.client import Client
 TEMP = 'temperature'
 HUMIDITY = 'humidity'
 
+K_0=20
+K_1=80
+
 def on_message(mqttc, data, msg):
     print (f'message:{msg.topic}:{msg.payload}:{data}')
     if data['status'] == 0:
@@ -32,8 +35,8 @@ def on_log(mqttc, data, level, buf):
 
 
 def main(broker):
-    data = {'temp_threshold':20,
-            'humidity_threshold':80,
+    data = {'temp_threshold':K_0,
+            'humidity_threshold':K_1,
             'status': 0}
     mqttc = Client(userdata=data)
     mqttc.on_message = on_message
