@@ -24,3 +24,8 @@ Analogo al ejemplo del Ej4, generalizandolo con los valores K_{i} como constante
 Analogo al ejemplo del Ej5.
 
 ## Ejercicio 6
+Genera 3 clientes, donde cada uno esta escuchando un topic (numbers, temperature, humidity). Cuando numbers lee un numero primo, inicia un temporizador, que le dice a temperatura que empiece a grabar hasta que este acaba. Entonces si calcula la media.
+
+Si esta, se encuentra fuera de rango, se hace lo mismo para humedad y calculando la humedad media al final. Cuando acaba cada proceso, indica si estan dentro o fuera de rango.
+
+El ejercicio esta a falta de afinar unos detalles sobre procesos y como pasar una lista compartida, o mas bien donde generarla.
