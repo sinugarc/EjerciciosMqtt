@@ -28,4 +28,6 @@ Genera 3 clientes, donde cada uno esta escuchando un topic (numbers, temperature
 
 Si esta, se encuentra fuera de rango, se hace lo mismo para humedad y calculando la humedad media al final. Cuando acaba cada proceso, indica si estan dentro o fuera de rango.
 
-El ejercicio esta a falta de afinar unos detalles sobre procesos y como pasar una lista compartida, o mas bien donde generarla.
+El ejercicio_6 inicial  esta a falta de afinar unos detalles sobre procesos y como pasar una lista compartida, o mas bien donde generarla.
+
+En el ejercicio 6_1, se solucionan los problemas de multiprocessing, pero no consigue hacer una publicacion con publish.single() para activar el guardar los datos.
