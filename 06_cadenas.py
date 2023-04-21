@@ -107,7 +107,7 @@ def on_message_3(mqttc, data, msg):
             datos[pid][1].append(int(msg.payload))
 
 
-def main(hostname):
+def main(hostname):  Hay que meterlo en el data como {} para poder acceder despues a ello. Mirar tambien si enceisot un lock para el acceso unico.
     
     mqttc1 = Client()
     mqttc1.on_message = on_message_1
