@@ -2,23 +2,17 @@ import paho.mqtt.publish as publish
 import sys
 
 from paho.mqtt.client import Client
-from multiprocessing import Process, Manager
+from multiprocessing import Process, Manager, Value, Lock
 from time import sleep
 from random import randint
 
-UPPER_TIMER=10 # integer > 2, upper limit for timer set up
+UPPER_TIMER=10 # integer > 3, upper limit for timer set up
 
 LOWER_TEMP=10
 UPPER_TEMP=15
 
-LOWER_HUM=20
-UPPER_HUM=30
-
-datos=[]
-pid=[]
-
-active_pid_temp=set()
-active_pid_hum=set()
+LOWER_HUM=0
+UPPER_HUM=100
 
 
 def is_prime(n):
@@ -27,105 +21,151 @@ def is_prime(n):
         i += 1
     return i*i > n
 
-def temp_range(pid):
+def in_range(pid,data,factor):
+    mutex='locks'
+    
     try:
-        suma=sum(datos[pid][0])
-        avg=suma/len(datos[pid][0])
-        print(f'{pid}, Avg temp: {avg}')
-        return LOWER_TEMP<avg and avg<UPPER_TEMP
+        name=str(pid)+'_'+str(factor)
+        data[mutex]['datos'].acquire()
+        suma=sum(data['datos'][name])
+        avg=suma/len(data['datos'][name])
+        data[mutex]['datos'].release()
+        
+        if factor==0:
+            print(f'{pid}, Avg temp: {avg}')
+        else:
+            print(f'{pid}, Avg hum: {avg}')
+
+        res = data[factor][0]<avg and avg<data[factor][1]
+        print(f'{pid} in_range for factor {factor} is {res}')
+        return res
+    
     except ZeroDivisionError:
-        print(f'{pid}, Not enough temp data')
+        data[mutex]['datos'].release()
+        print(f'{pid}, Not enough data')
         return False
 
-def hum_range(pid):
-    try:
-        suma=sum(datos[pid][1])
-        avg=suma/len(datos[pid][1])
-        print(f'{pid}, Avg hum: {avg}')
-        return LOWER_HUM<avg and avg<UPPER_HUM
-    except ZeroDivisionError:
-        print(f'{pid}, Not enough hum data')
-        return False
-
-def f_timer(mqttc, pid):
-    t=randint(2,UPPER_TIMER)
-    mqttc.publish('temperature/t1',f'timer has started,{pid}')
+def f_timer(pid,data):
+    mutex='locks'
+    t=randint(3,UPPER_TIMER)
+    print(f'Timer for proccess {pid} is {t}')
+    text_1=f'timer has started,{pid}'
+    text_2=f'timeout,{pid}'
+    
+    publish.single('/clients/timer', payload=text_1+',temp', hostname=data['broker'])
     sleep(t)
-    mqttc.publish('temperature/t1',f'timeout,{pid}')
-    sleep(1)
-    if not temp_range(pid):
-        mqttc.publish('humidity',f'timer has started,{pid}')
+    publish.single('/clients/timer', payload=text_2+',temp', hostname=data['broker'])
+    
+    
+    if not in_range(pid,data,0) :
+        
+        publish.single('/clients/timer', payload=text_1+',hum', hostname=data['broker'])
         sleep(t)
-        mqttc.publish('humidity',f'timeout,{pid}')
-        sleep(1)
-        if hum_range(pid):
+        publish.single('/clients/timer', payload=text_2+',hum', hostname=data['broker'])
+        
+        print(data['datos'])
+        
+        if in_range(pid,data,1):
             print(f'From {pid}: Temperature out of range, but Humidity in Range')
         else:
             print(f'From {pid}: ALERT, Temperature and Humidity out of range')
+            
     else:
         print(f'From {pid}: Temperature in range')
     
 
 def on_message_1(mqttc, data, msg):
-    print(msg.payload)
+    mutex='locks'
     try:
         d = float(msg.payload)
-        print(d)
         n = int(round(d))
-        if n==d and n>1 and is_prime(n) :
-            datos.append(([],[]))
-            worker=Process(target=f_timer,args=(mqttc,len(pid)))
+        
+        if n==d and n>1 and n%2==0:
+            data[mutex]['pid'].acquire()
+            pid=data['pid'].value
+            data['pid'].value = pid+1
+            data[mutex]['pid'].release()
+
+            print(f'Starting process {pid}')
+            worker=Process(target=f_timer,args=(pid,data))
             worker.start()
-            pid.append(1)
+            
     except ValueError:
         pass
         
 def on_message_2(mqttc, data, msg):
-    print(msg.payload)
     mensaje=str(msg.payload).split(',')
-    if len(mensaje)>1:
-        if mensaje[0]=='time has started':
-            active_pid_temp.add(int(mensaje[1][2:-1]))
-            print(active_pid_temp)
-        elif mensaje[0]=='timeout':
-            active_pid_temp.remove(int(mensaje[1][2:-1]))
-            print(active_pid_temp)
-    else:
-        for pid in active_pid_temp:
-            datos[pid][0].append(int(msg.payload))
-            
-def on_message_3(mqttc, data, msg):
-    print(msg.payload)
-    mensaje=str(msg.payload).split(',')
-    if len(mensaje)>1:
-        if mensaje[0]=='time has started':
-            active_pid_hum.add(int(mensaje[1][2:-1]))
-        elif mensaje[0]=='timeout':
-            active_pid_hum.remove(int(mensaje[1][2:-1]))
-    else:
-        for pid in active_pid_hum:
-            datos[pid][1].append(int(msg.payload))
-
-
-def main(hostname):  Hay que meterlo en el data como {} para poder acceder despues a ello. Mirar tambien si enceisot un lock para el acceso unico.
+    mutex='locks'
+    timer=''
     
-    mqttc1 = Client()
+    if len(mensaje)>1:
+        timer = mensaje[2][0:-1]
+
+    if msg.topic == 'humidity' or timer == 'hum':
+        target = 1
+        conjunto = 'active_pid_hum'
+    else:
+        target = 0
+        conjunto = 'active_pid_temp'
+    
+    if len(mensaje)>1:
+        data[mutex][conjunto].acquire()
+        if mensaje[0][2:]=='timer has started':
+            name=(mensaje[1])+'_'+str(target)
+            data[conjunto][name]=1
+        elif mensaje[0][2:]=='timeout':
+            name=(mensaje[1])+'_'+str(target)
+            del data[conjunto][name]
+        data[mutex][conjunto].release()
+        
+    elif len(data[conjunto]) != 0:
+        data[mutex]['datos'].acquire()
+        for pid in data[conjunto]:
+            if pid in data['datos']:
+                l=data['datos'][pid]
+                l.append(int(msg.payload))
+                data['datos'][pid]=l
+            else:
+                data['datos'][pid]=[int(msg.payload)]
+        data[mutex]['datos'].release()
+
+def main(hostname):
+    manager=Manager()
+    lock=Lock()
+    
+    datos = manager.dict()
+    pid = Value('i',0)
+    active_pid_temp = manager.dict()
+    active_pid_hum = manager.dict()
+    
+    locks={}
+    locks['datos']=lock
+    locks['pid']=lock
+    locks['active_pid_temp']=lock
+    locks['active_pid_hum']=lock
+
+    data={'broker':hostname,
+          'datos':datos,
+          'pid':pid,
+          'active_pid_temp':active_pid_temp,
+          0:[LOWER_TEMP,UPPER_TEMP],
+          'active_pid_hum':active_pid_hum,
+          1:[LOWER_HUM,UPPER_HUM],
+          'locks':locks}
+    
+    mqttc1 = Client(userdata=data)
     mqttc1.on_message = on_message_1
     mqttc1.connect(hostname)
     mqttc1.subscribe('numbers')
     mqttc1.loop_start()
 
-    mqttc2 = Client()
+    mqttc2 = Client(userdata=data)
     mqttc2.on_message = on_message_2
     mqttc2.connect(hostname)
     mqttc2.subscribe('temperature/#')
-    mqttc2.loop_start()
-
-    mqttc3 = Client()
-    mqttc3.on_message = on_message_3
-    mqttc3.connect(hostname)
-    mqttc3.subscribe('humidity')
-    mqttc3.loop_forever()
+    mqttc2.subscribe('humidity')
+    mqttc2.subscribe('/clients/timer')
+    mqttc2.loop_forever()
 
 if __name__ == '__main__':
     hostname = 'simba.fdi.ucm.es'
