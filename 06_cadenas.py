@@ -182,11 +182,14 @@ def main(hostname):
 
     data={'broker':hostname,
           'datos':datos,
+          # Diccionario que contendra todos los datos almacenados.
           'pid':pid,
           'active_pid_temp':active_pid_temp,
-          'temp':[LOWER_TEMP,UPPER_TEMP],
+          # Diccionario que contendra los procesos con temporizador activo para temperatura.
+          'temp':[LOWER_TEMP,UPPER_TEMP], # Rango para la temperatura
           'active_pid_hum':active_pid_hum,
-          'hum':[LOWER_HUM,UPPER_HUM],
+          # Diccionario que contendra los procesos con temporizador activo para humedad.
+          'hum':[LOWER_HUM,UPPER_HUM], # Rango para la humedad
           'locks':locks}
     
     mqttc1 = Client(userdata=data)
