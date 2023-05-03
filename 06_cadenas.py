@@ -11,44 +11,58 @@ UPPER_TIMER=10 # integer > 3, upper limit for timer set up
 LOWER_TEMP=10
 UPPER_TEMP=15
 
-LOWER_HUM=0
-UPPER_HUM=100
+LOWER_HUM=30
+UPPER_HUM=70
 
-
-def is_prime(n):
-    i = 2
-    while i*i < n and n % i != 0:
-        i += 1
-    return i*i > n
 
 def in_range(pid,data,factor):
+    """
+    Funcion que calcula si los datos de un {pid} dado un factor (temp/hum)
+    estan entre los limites estipulados encima.
+
+    Tiene en cuenta la posibilidad de tener 0 datos, por eso la excepcion.
+
+    Saca por pantalla la temp/hum media
+    """
+    
     mutex='locks'
     
     try:
-        name=str(pid)+'_'+str(factor)
+        name=str(pid)+'_'+factor
         data[mutex]['datos'].acquire()
         suma=sum(data['datos'][name])
         avg=suma/len(data['datos'][name])
         data[mutex]['datos'].release()
         
-        if factor==0:
-            print(f'{pid}, Avg temp: {avg}')
+        if factor=='temp':
+            print(f'Process {pid}, Avg temp: {avg}')
         else:
-            print(f'{pid}, Avg hum: {avg}')
+            print(f'Process {pid}, Avg hum: {avg}')
 
-        res = data[factor][0]<avg and avg<data[factor][1]
-        print(f'{pid} in_range for factor {factor} is {res}')
-        return res
+        return data[factor][0]<avg and avg<data[factor][1]
     
     except ZeroDivisionError:
         data[mutex]['datos'].release()
-        print(f'{pid}, Not enough data')
+        print(f'Process {pid}, Not enough data')
         return False
 
 def f_timer(pid,data):
+    """
+    Funcion objetivo del proceso. Una vez llamada se ejecuta un temporizador para
+    almacenar las temperaturas y se calcula si estan o no en rango.
+
+    Si no lo estan vuelve a activar un temporizador para almacenar la humedad y
+    calcula si estan en rango.
+
+    Devuelve por pantalla los resultados del rango y ademas antes de finalizar
+    hace un print de los datos, aunque no sea necesario, pero que sirve para
+    observar como los almacena.
+    
+    """
+    
     mutex='locks'
     t=randint(3,UPPER_TIMER)
-    print(f'Timer for proccess {pid} is {t}')
+    print(f'Timer for process {pid} is {t}')
     text_1=f'timer has started,{pid}'
     text_2=f'timeout,{pid}'
     
@@ -57,24 +71,31 @@ def f_timer(pid,data):
     publish.single('/clients/timer', payload=text_2+',temp', hostname=data['broker'])
     
     
-    if not in_range(pid,data,0) :
+    if not in_range(pid,data,'temp') :
         
         publish.single('/clients/timer', payload=text_1+',hum', hostname=data['broker'])
         sleep(t)
         publish.single('/clients/timer', payload=text_2+',hum', hostname=data['broker'])
         
-        print(data['datos'])
-        
-        if in_range(pid,data,1):
-            print(f'From {pid}: Temperature out of range, but Humidity in Range')
+        if in_range(pid,data,'hum'):
+            print(f'From process {pid}: Temperature out of range, but Humidity in Range')
         else:
-            print(f'From {pid}: ALERT, Temperature and Humidity out of range')
+            print(f'From process {pid}: ALERT, Temperature and Humidity out of range')
             
     else:
-        print(f'From {pid}: Temperature in range')
+        print(f'From process {pid}: Temperature in range')
+
+    print(f'Full data once process {pid} has finished:\n',data['datos'])
     
 
 def on_message_1(mqttc, data, msg):
+    """
+    Funcion on_message del primer cliente subscrito a numbers.
+
+    Cada vez que recibe un numero entero mayor que 1 par, inicia un proceso para
+    el calculo de temp/hum.
+    
+    """
     mutex='locks'
     try:
         d = float(msg.payload)
@@ -94,38 +115,53 @@ def on_message_1(mqttc, data, msg):
         pass
         
 def on_message_2(mqttc, data, msg):
+    """
+    Funcion on_message del segundo cliente, subscrito a temperature/#, humidity
+    y al topic del temporizador.
+
+    Primero localiza el topic del que recibe el mensaje, ya sea de temp y/o humedad
+    y sus repectivos temporizadores.
+
+    Si detecta un temporizador, detecta el {pid} del proceso y, o lo pone
+    en el diccionario que indica si debe guardar informacion o lo quita de este mismo.
+
+    Solo cuando el diccionario adecuado no este vacio, procesara la temperatura/humedad
+    y la guardara tantas veces como sea necesario.
+    
+    """
+    
     mensaje=str(msg.payload).split(',')
     mutex='locks'
     timer=''
     
     if len(mensaje)>1:
-        timer = mensaje[2][0:-1]
+        timer = mensaje[2][0:-1] # Detecta si el timer es para temp o hum
 
-    if msg.topic == 'humidity' or timer == 'hum':
-        target = 1
+    if msg.topic == 'humidity' or timer == 'hum': # Detecta que objetivo y conjunto debe usar
+        target = 'hum'
         conjunto = 'active_pid_hum'
     else:
-        target = 0
+        target = 'temp'
         conjunto = 'active_pid_temp'
     
-    if len(mensaje)>1:
+    if len(mensaje)>1: # Se encuentra con un mensaje del temporizador
         data[mutex][conjunto].acquire()
         if mensaje[0][2:]=='timer has started':
-            name=(mensaje[1])+'_'+str(target)
-            data[conjunto][name]=1
+            name=(mensaje[1])+'_'+target # Da nombre al diccionario que contendra la informacion
+            data[conjunto][name]=1 # Lo añade al diccionario del conjunto
         elif mensaje[0][2:]=='timeout':
-            name=(mensaje[1])+'_'+str(target)
-            del data[conjunto][name]
+            name=(mensaje[1])+'_'+target
+            del data[conjunto][name] # Una vez el temporizador acaba, lo elimina del conjunto
         data[mutex][conjunto].release()
         
-    elif len(data[conjunto]) != 0:
+    elif len(data[conjunto]) != 0: # Detecta si hay algun temporizador activo y guarda el dato
         data[mutex]['datos'].acquire()
         for pid in data[conjunto]:
             if pid in data['datos']:
                 l=data['datos'][pid]
                 l.append(int(msg.payload))
                 data['datos'][pid]=l
-            else:
+            else: #Si es la primera vez que añade dato para ese pid, crea la lista de temp o hum.
                 data['datos'][pid]=[int(msg.payload)]
         data[mutex]['datos'].release()
 
@@ -148,9 +184,9 @@ def main(hostname):
           'datos':datos,
           'pid':pid,
           'active_pid_temp':active_pid_temp,
-          0:[LOWER_TEMP,UPPER_TEMP],
+          'temp':[LOWER_TEMP,UPPER_TEMP],
           'active_pid_hum':active_pid_hum,
-          1:[LOWER_HUM,UPPER_HUM],
+          'hum':[LOWER_HUM,UPPER_HUM],
           'locks':locks}
     
     mqttc1 = Client(userdata=data)
